@@ -1,0 +1,145 @@
+# Claude Code — Session 1 of 4: Physics Classes
+## Hydronic Loop Visualizer — Phase 2
+
+### What you're starting with
+
+A working Phase 1 codebase. The existing `Valve` class and `500×Q` coil formula are
+in place. `test_solver.py` is fully green. Do not touch any existing passing tests.
+
+**Your job this session:** implement three pure-Python physics classes — `CvValve`,
+`Coil`, and `PIController` — and their unit tests. No Dash. No UI. No loop wiring.
+Everything here is testable with `pytest` alone.
+
+---
+
+### Spec references
+
+All detail is in `Hydronic_Phase2_Implementation_Plan_v1.9.docx`. Read the listed
+section before writing each class.
+
+| What | Spec sections |
+|------|--------------|
+| CvValve design | 2.1 – 2.5 |
+| CvValve sizing example | 2.6 (verify your implementation against these numbers) |
+| Coil model | 3.1 – 3.7 |
+| PIController | 4.1 – 4.3 (class design), 4.4 (tuning), 4.5 (initial conditions) |
+| Unit tests for all three | 6.1, 6.2, 6.3 |
+
+---
+
+### File layout — create these files
+
+```
+hydronic/
+    valve.py       # CvValve + deprecated Valve stub
+    coil.py        # Coil + calibrate_coil_ua() helper
+    controller.py  # PIController
+test_phase2.py     # all Session 1 unit tests (write before running)
+```
+
+---
+
+### Constraints that matter this session
+
+**CvValve**
+- `characteristic` validated in `__init__` — raise `ValueError` for anything other
+  than `"equal_pct"`, `"linear"`, `"quick_open"` (Section 2.3).
+- `cv_min` is the leakage floor. `cv()` never returns below `cv_min`.
+- `position_override` in `dp_ft()` and `flow_gpm()` does **not** mutate
+  `self.position`. This is essential for Sizing Authority A computation later.
+- Do **not** add an `authority` attribute — it's a loop-level quantity (Section 2.3).
+- Keep the old `Valve` class with a `DeprecationWarning` in `__init__`.
+
+**Coil**
+- `q_design_gpm` is required at construction. `compute_load()` will raise
+  `AttributeError` if it is missing (Section 3.5).
+- Zero-flow guard: return zero load immediately if `q_gpm < 1e-6`.
+- `sign = 1.0` when `t_water_in_f >= t_air_enter_f` (heating);
+  `sign = -1.0` otherwise (cooling). Both paths must work.
+- LMTD epsilon floor `1e-6` — prevents `log(0)`.
+- `Q_MIN_FLOOR_GPM = 1.0` for UA scaling floor. Add a comment: *system-size-
+  dependent; appropriate for Q_design ≥ 50 gpm.*
+- Return dict must include `converged` (bool) and `iterations` (int).
+
+**PIController**
+- Incremental / velocity form — not absolute. See Section 4.2 for the exact formula.
+- Anti-windup: skip the `Ki` term when already saturated **and** the error would
+  deepen saturation (conditional integration, Section 4.2).
+- `_u_prev` initialises to `output_min`; `_e_prev` initialises to `0.0`.
+- `reset(initial_output)` sets `_u_prev = clamp(initial_output)`, `_e_prev = 0.0`.
+  Never write to `_u_prev` directly from outside the class — always use `reset()`.
+
+---
+
+### Steps
+
+**Step 0 — Confirm baseline**
+```
+pytest test_solver.py
+```
+All green before touching anything.
+
+**Step 1 — CvValve**
+Read Sections 2.1–2.5. Write `hydronic/valve.py`.
+Write all Section 6.1 tests in `test_phase2.py` **before** running them.
+```
+pytest test_phase2.py -k "valve" -v
+```
+All green. ✔
+
+**Step 2 — Swap Valve → CvValve in loop**
+Update the loop construction to use `CvValve(cv_max=54, cv_min=0.5,
+characteristic="equal_pct")`. No other logic changes.
+```
+pytest test_solver.py
+```
+Still all green. ✔
+
+**Step 3 — Coil**
+Read Sections 3.1–3.7. The full `compute_load()` body is in Section 3.7 — copy it
+exactly. Write `hydronic/coil.py` and `calibrate_coil_ua()` helper.
+Write all Section 6.2 tests (heating **and** cooling paths) before running.
+```
+pytest test_phase2.py -k "coil" -v
+```
+All green. ✔
+
+**Step 4 — PIController**
+Read Sections 4.1–4.3. Write `hydronic/controller.py`.
+Write all Section 6.3 tests before running.
+```
+pytest test_phase2.py -k "pi" -v
+```
+All green. ✔
+
+**Step 5 — Full suite**
+```
+pytest test_solver.py test_phase2.py -v
+```
+All green. No regressions. ✔
+
+---
+
+### Quick reference — numbers for this session
+
+| Parameter | Value | Spec |
+|-----------|-------|------|
+| Default `cv_max` | 54 | §2.4 |
+| Default `cv_min` | 0.5 | §2.4 |
+| `Q_MIN_FLOOR_GPM` | 1.0 | §3.7 |
+| Coil max iterations | 30 | §3.7 |
+| Coil convergence tol | 0.01 °F | §3.7 |
+| UA exponent (coil) | 0.8 | §3.4 |
+| Pump PI: Kp, Ki | 0.05, 0.004 | §4.4 |
+| Valve PI: Kp, Ki | 0.05, 0.002 | §4.4 |
+| `dt_seconds` | 0.5 | §4.4 |
+
+---
+
+### Hand-off checklist
+
+Before ending this session, confirm:
+- [ ] `pytest test_solver.py test_phase2.py` — all green
+- [ ] `hydronic/valve.py`, `coil.py`, `controller.py` all exist
+- [ ] No module-level mutable state in any of the three files
+- [ ] `test_phase2.py` has tests for CvValve, Coil (heating + cooling), PIController
